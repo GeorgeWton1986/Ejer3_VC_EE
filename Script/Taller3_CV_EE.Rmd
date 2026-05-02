@@ -64,12 +64,74 @@ La base de datos "Base_palomas.dta" contiene información de la encuesta realiza
 -	¿Qué patrón observa entre el precio ofrecido y la probabilidad de aceptación? Interprete.
 
 ```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+# Filtrar solo observaciones con respuesta a la pregunta de DAP
+Base_a <- Basepalomas_0 %>%
+  filter(!is.na(BID) & !is.na(decisin))
+
 # Observaciones vs. nivel de precio
+tabla_bid <- Base_a %>%
+  group_by(BID) %>%
+  summarise(n_obs = n()) %>%
+  mutate(porcentaje = round(n_obs / sum(n_obs) * 100, 1))
+
+kable(tabla_bid, 
+      col.names = c("BID (USD/día)", "Observaciones", "% del total"),
+      caption = "Distribución de observaciones por nivel de BID")
 
 # Proporción del "Si" y "No" vs. nivel de precio
 
+# Total
+tabla_total <- Base_a %>%
+  summarise(
+    n_si  = sum(decisin == 1),
+    n_no  = sum(decisin == 0),
+    pct_si = round(mean(decisin == 1) * 100, 1),
+    pct_no = round(mean(decisin == 0) * 100, 1)
+  )
+
+kable(tabla_total,
+      col.names = c("Sí", "No", "% Sí", "% No"),
+      caption = "Proporción total de respuestas Sí/No")
+
+# Por nivel de BID
+tabla_bid_decision <- Base_a %>%
+  group_by(BID) %>%
+  summarise(
+    n_obs  = n(),
+    n_si   = sum(decisin == 1),
+    n_no   = sum(decisin == 0),
+    pct_si = round(mean(decisin == 1) * 100, 1),
+    pct_no = round(mean(decisin == 0) * 100, 1)
+  )
+
+kable(tabla_bid_decision,
+      col.names = c("BID (USD)", "Observaciones", "Sí", "No", "% Sí", "% No"),
+      caption = "Proporción de respuestas Sí/No por nivel de BID")
+
 # Grafica del patrón según probabilidad de aceptación.
 
+ggplot(tabla_bid_decision, aes(x = BID, y = pct_si)) +
+  geom_point(size = 3, color = "steelblue") +
+  geom_line(color = "steelblue") +
+  xlim(200, 550) +
+  ylim(0, 70) +
+  geom_text(aes(label = paste0(pct_si, "%")), 
+            vjust = -0.8, size = 2.5) +
+  labs(
+    title    = "Probabilidad de aceptación por nivel de BID",
+    x        = "BID (USD/día/persona)",
+    y        = "% Respuestas Sí",
+    caption  = "Fuente: Base_palomas.dta"
+  ) +
+  theme_minimal()
 
 
 ```
+### Literal b)	Explore la variable BID y la variable decisión. 
+b)	A partir de las variables disponibles en la base, construya las siguientes variables para el análisis:
+-	Una variable numérica de ingreso (incom) asignando el punto medio de cada categoría de ingreso
+-	Una variable dummy de género (female) donde 1 = Mujer y 0 = Hombre
+-	Variables dummy por tipo de observador de aves (tBW1, tBW2, etc.) a partir de p30types_birdwatchers
+-	Una variable dummy (interesed_inCol) que identifique a las personas que mencionaron a Colombia entre sus tres países de interés para futuros viajes de aviturismo
+-	Una variable dummy (visitcol) para quienes han visitado Colombia previamente
+
