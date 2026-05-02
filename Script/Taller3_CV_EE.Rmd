@@ -1,0 +1,75 @@
+---
+title: "Taller_3_VC_EE"
+author: "VIAFARA MORALES, JORGE ELIECER; ALAPE GAMEZ, CARLOS DAVID"
+date: "2026-05-02"
+output: html_document
+---
+#1. VALORACION CONTINGENTE
+### Instalación de paquetes
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+#Limpiar la consola
+cat("\f")
+
+#Limpiar el Global Environment
+rm(list = ls())
+
+#Incluir las librerias
+if(!require(pacman)) install.packages("pacman") ; require(pacman)
+p_load(haven,        #Leer archivos .dta
+       dplyr,        #Manipular datos
+       stargazer,    #Visualizar tablas de regresión
+       fixest,       #Calcular los efectos fijos
+       plm,          #Datos de panel
+       knitr,        #Visualizar tablas adicionales
+       ivreg,        #Regresiones por variables instrumentales
+       broom,        #Extraer resultados de regresiones
+       AER,          #Regresiones por variables instrumentales
+       sandwich,     #Errores estándar robustos
+       lmtest,       #Pruebas estadísticas
+       kableExtra,   #Tablas avanzadas
+       tidyverse,    #Conjunto de paquetes para ciencia de datos
+       modelsummary, #Resumir modelos
+       ggplot2,      #Gráficos
+       rddensity,    #Test de McCrary
+       readxl,       #Leer archivos Excel
+       rio,         #Importar/exportar datos múltiples formatos
+       knitr,        #Tablas dinámicas
+       magick,       #Convertir tabla en PNG
+       webshot2,      #Guardar tablas como gráficos
+       tinytex,       #Compila documentos en Latex
+       pdftools,      #Leer archivos en PDF
+       tidyr,         #Manipulación de datos
+       mass,          #Función box-cox
+       countreg,      #Modelos de conteo
+       VGAM           #Modelos de conteo
+      )
+```
+
+### Transformación de datos en R
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+
+# Definir URL del archivo en GitHub
+github_url <- "https://raw.githubusercontent.com/GeorgeWton1986/Ejer3_VC_EE/refs/heads/main/Data/Base_palomas.dta"
+
+
+# Leer el archivo .dta directamente desde GitHub
+Basepalomas_0 <- read_dta(github_url)
+```
+
+La base de datos "Base_palomas.dta" contiene información de la encuesta realizada a 1.188 miembros de la Sociedad Audubon en Norteamérica. La encuesta fue aplicada entre el 8 y el 17 de abril de 2016. La población objetivo corresponde a aproximadamente los 660.000 miembros de Audubon en Norteamérica
+
+### Literal a)	Explore la variable BID y la variable decisión. 
+-	¿Cuántas observaciones hay por cada nivel de precio? 
+-	¿Cuál es la proporción de respuestas "Sí" y "No" en total y por cada nivel de BID?
+-	¿Qué patrón observa entre el precio ofrecido y la probabilidad de aceptación? Interprete.
+
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+# Observaciones vs. nivel de precio
+
+# Proporción del "Si" y "No" vs. nivel de precio
+
+# Grafica del patrón según probabilidad de aceptación.
+
+
+
+```
