@@ -41,7 +41,8 @@ p_load(haven,        #Leer archivos .dta
        tidyr,         #Manipulación de datos
        mass,          #Función box-cox
        countreg,      #Modelos de conteo
-       VGAM           #Modelos de conteo
+       VGAM,          #Modelos de conteo
+       margins        #Efectos marginales en modelos no lineales
       )
 ```
 
@@ -127,11 +128,422 @@ ggplot(tabla_bid_decision, aes(x = BID, y = pct_si)) +
 
 
 ```
-### Literal b)	Explore la variable BID y la variable decisión. 
-b)	A partir de las variables disponibles en la base, construya las siguientes variables para el análisis:
+### Literal b) A partir de las variables disponibles en la base, construya las siguientes variables para el análisis:
 -	Una variable numérica de ingreso (incom) asignando el punto medio de cada categoría de ingreso
 -	Una variable dummy de género (female) donde 1 = Mujer y 0 = Hombre
 -	Variables dummy por tipo de observador de aves (tBW1, tBW2, etc.) a partir de p30types_birdwatchers
 -	Una variable dummy (interesed_inCol) que identifique a las personas que mencionaron a Colombia entre sus tres países de interés para futuros viajes de aviturismo
 -	Una variable dummy (visitcol) para quienes han visitado Colombia previamente
 
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+
+Base_b <- Basepalomas_0 %>%  
+
+  # 1. Variable numérica de ingreso (incom)
+  mutate(incom = case_when(
+    p61income == "Less than $50K"  ~ 25000,
+    p61income == "$51 - $100K"     ~ 75000,
+    p61income == "$101 - $150K"    ~ 125000,
+    p61income == "$151 - $200K"    ~ 175000,
+    p61income == "More than $200K" ~ 250000,
+    TRUE ~ NA_real_
+  )) %>%
+  
+  # 2. Variable dummy de género (female)
+  # 1 = Mujer, 0 = Hombre
+  mutate(female = case_when(
+    p52gender == "Female" ~ 1,
+    p52gender == "Male"   ~ 0,
+    TRUE ~ NA_real_
+  )) %>%
+  
+  # 3. Dummies por tipo de observador (p30types_birdwatchers)
+  # tBW1 = Casual, tBW2 = Entusiasta, tBW3 = Hard Core
+  mutate(
+    tBW1 = if_else(p30types_birdwatchers == "Casual Birders",        1, 0),
+    tBW2 = if_else(p30types_birdwatchers == "Enthusiastic birders",  1, 0),
+    tBW3 = if_else(p30types_birdwatchers == "Hard Core Birders",     1, 0)
+  ) %>%
+  
+  # 4. Dummy interesed_inCol
+  # 1 si Colombia aparece en p22country1, p22country2 o p22country3
+  mutate(interesed_inCol = if_else(
+    p22country1 == "CO - Colombia" |
+    p22country2 == "CO - Colombia" |
+    p22country3 == "CO - Colombia",
+    1, 0, missing = 0
+  )) %>%
+  # 5. Dummy visitcol
+  # 1 si ha visitado Colombia previamente
+  mutate(visitcol = if_else(
+    p36visited_colombia == "Yes", 1, 0, missing = 0
+  ))
+
+Base_b %>%
+  select(incom, female, tBW1, tBW2, tBW3, interesed_inCol, visitcol) %>%
+  summary()
+
+# Resumen en tabla de las nuevas variables
+
+resumen <- Base_b %>%
+  summarise(
+    # Ingreso
+    `Ingreso promedio (USD)`     = mean(incom, na.rm = TRUE),
+    `Ingreso mediana (USD)`      = median(incom, na.rm = TRUE),
+    
+    # Género
+    `% Mujeres`                  = round(mean(female, na.rm = TRUE) * 100, 1),
+    
+    # Tipo de observador
+    `% Casual (tBW1)`            = round(mean(tBW1, na.rm = TRUE) * 100, 1),
+    `% Entusiasta (tBW2)`        = round(mean(tBW2, na.rm = TRUE) * 100, 1),
+    `% Hard Core (tBW3)`         = round(mean(tBW3, na.rm = TRUE) * 100, 1),
+    
+    # Colombia
+    `% Interesado en Colombia`   = round(mean(interesed_inCol, na.rm = TRUE) * 100, 1),
+    `% Visitó Colombia`          = round(mean(visitcol, na.rm = TRUE) * 100, 1)
+  ) %>%
+  pivot_longer(everything(), 
+               names_to  = "Variable", 
+               values_to = "Valor")
+
+kable(resumen,
+      caption = "Tabla resumen de variables construidas",
+      digits  = 1,
+      align   = c("l", "r"))
+
+```
+### Literal c)	Estime un modelo Probit univariado (Modelo 1) que explique la decisión de aceptar o no el pago en función únicamente del BID. 
+Reporte los coeficientes, los efectos marginales y la bondad de ajuste del modelo. 
+-	 ¿El signo del coeficiente del BID es el esperado? Justifique
+
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+
+# Muestra para estimación Probit
+Base_c <- Base_b %>%
+  filter(!is.na(BID) & !is.na(decisin))
+
+nrow(Base_c) # Verificar número de observaciones
+
+# Modelo 1: Probit univariado con BID como única variable explicativa
+modelo1 <- glm(decisin ~ BID, 
+               data   = Base_c,
+               family = binomial(link = "probit"))
+
+# Efectos marginales
+efectos_m1 <- margins(modelo1)
+ef_m1      <- summary(efectos_m1)
+
+# Pseudo R2 McFadden
+coefs    <- coef(summary(modelo1))
+pseudo_r2 <- 1 - (as.numeric(logLik(modelo1)) / 
+                  as.numeric(logLik(glm(decisin ~ 1,
+                                        data   = Base_c,
+                                        family = binomial(link = "probit")))))
+
+# Función para agregar asteriscos
+stars <- function(p) {
+  case_when(
+    p < 0.01 ~ "***",
+    p < 0.05 ~ "**",
+    p < 0.1  ~ "*",
+    TRUE     ~ ""
+  )
+}
+
+# Tabla 1: Resultados del Modelo Probit Univariado (Modelo 1)
+tabla_m1 <- tibble(
+  `Descripción` = c("Intercepto", 
+                    "BID (USD/Día)",
+                    "Observaciones",
+                    "Log-likelihood",
+                    "Pseudo R² (McFadden)"),
+  `Estimador` = c(
+    paste0(round(coefs["(Intercept)", "Estimate"], 3), 
+           stars(coefs["(Intercept)", "Pr(>|z|)"])),
+    paste0(round(coefs["BID", "Estimate"], 7), 
+           stars(coefs["BID", "Pr(>|z|)"])),
+    as.character(nrow(Base_c)),
+    as.character(round(as.numeric(logLik(modelo1)), 3)),
+    as.character(round(pseudo_r2, 8))
+  ),
+  `Desv. Estándar` = c(
+    paste0("(", round(coefs["(Intercept)", "Std. Error"], 3), ")"),
+    paste0("(", round(coefs["BID",         "Std. Error"], 3), ")"),
+    "", "", ""
+  )
+)
+
+# Imprimir tabla de resultados del modelo
+kable(tabla_m1,
+      align   = c("l", "r", "r"),
+      caption = "Modelo Probit Univariado (Modelo 1)") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = FALSE,
+    position          = "center"
+  ) %>%
+  footnote(general = "Errores estándar en paréntesis. * p<0.1, ** p<0.05, *** p<0.01")
+
+# Tabla 2: Efectos Marginales del Modelo Probit Univariado (Modelo 1)
+ef_tabla <- summary(efectos_m1) %>%
+  select(factor, AME, SE, z, p) %>%
+  mutate(
+    AME = round(AME, 5),
+    SE  = round(SE,  5),
+    z   = round(z,   3),
+    p   = round(p,   3)
+  )
+
+# Imprimir tabla de efectos marginales
+kable(ef_tabla,
+      col.names = c("Variable", "Efecto Marginal", 
+                    "Error Estándar", "Est. Z", "P-Valor"),
+      align     = c("l", "r", "r", "r", "r"),
+      caption   = "Efectos Marginales Promedio - Modelo 1") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = FALSE,
+    position          = "center"
+  ) %>%
+  footnote(general = "Errores estándar en paréntesis. * p<0.1, ** p<0.05, *** p<0.01")
+```
+### Literal d)	Estime un modelo Probit multivariado (Modelo 2) incorporando, además del BID, variables socioeconómicas y de perfil del observador que considere relevantes. 
+Justifique la inclusión de cada variable y comente los signos esperados de los coeficientes. ¿Se cumplieron? Reporte coeficientes, efectos marginales y bondad de ajuste.
+
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+
+# Preparar la base para el Modelo 2: Probit multivariado
+Base_c <- Base_b %>%
+  filter(!is.na(BID) & !is.na(decisin)) %>%
+  mutate(
+    # Educación universitaria o más
+    edu_univ = if_else(
+      p57education %in% c("College graduate", "Postgraduate"), 
+      1, 0),
+    
+    # Empleo activo
+    emp_work = if_else(p59employment_status == "Work", 1, 0),
+    
+    # Retirado
+    emp_retired = if_else(p59employment_status == "Retired", 1, 0)
+  )
+
+# Crear una dummy para quienes han viajado al exterior (viajaext) a partir de la variable p16countries_otherthanus
+Base_c <- Base_c %>%
+  mutate(viajaext = if_else(
+    p16countries_otherthanus == "Yes", 1, 0, missing = 0
+  ))
+
+# Modelo 2 Probit Multivariado
+
+modelo2 <- glm(decisin ~ BID + incom + p55age + tBW1 + tBW2 +
+                         visitcol + viajaext + interesed_inCol + 
+                         edu_univ + emp_work + emp_retired,
+               data   = Base_c,
+               family = binomial(link = "probit"))
+
+# Coeficientes
+summary(modelo2)
+
+# Efectos marginales
+efectos_m2 <- margins(modelo2)
+summary(efectos_m2)
+
+# Pseudo R2
+pseudo_r2_m2 <- 1 - (as.numeric(logLik(modelo2)) / 
+                     as.numeric(logLik(glm(decisin ~ 1,
+                                           data   = Base_c,
+                                           family = binomial(link = "probit")))))
+
+# Tabla Modelo 2 - Coeficientes + Efectos Marginales
+coefs_m2 <- coef(summary(modelo2))
+
+# Función asteriscos
+stars <- function(p) {
+  case_when(
+    p < 0.01 ~ "***",
+    p < 0.05 ~ "**",
+    p < 0.1  ~ "*",
+    TRUE     ~ ""
+  )
+}
+# Tabla 1: Coeficientes
+variables <- c("(Intercept)", "BID", "incom", "p55age", 
+               "tBW1", "tBW2", "visitcol", "viajaext",
+               "interesed_inCol", "edu_univ", 
+               "emp_work", "emp_retired")
+
+nombres <- c("Intercepto", "BID (USD/Día)", "Ingreso", 
+             "Edad", "Casual (tBW1)", "Entusiasta (tBW2)",
+             "Visitó Colombia", "Viaja al Exterior",
+             "Interés en Colombia", "Educación Universitaria",
+             "Empleo Activo", "Retirado")
+
+tabla_m2 <- tibble(
+  `Descripción` = c(nombres,
+                    "Observaciones",
+                    "Log-likelihood",
+                    "Pseudo R² (McFadden)"),
+  `Estimador` = c(
+    mapply(function(v, n) {
+      paste0(round(coefs_m2[v, "Estimate"], 7),
+             stars(coefs_m2[v, "Pr(>|z|)"]))
+    }, variables, nombres),
+    as.character(nrow(Base_c)),
+    as.character(round(as.numeric(logLik(modelo2)), 3)),
+    as.character(round(pseudo_r2_m2, 8))
+  ),
+  `Desv. Estándar` = c(
+    mapply(function(v) {
+      paste0("(", round(coefs_m2[v, "Std. Error"], 5), ")")
+    }, variables),
+    "", "", ""
+  )
+)
+
+kable(tabla_m2,
+      align   = c("l", "r", "r"),
+      caption = "Modelo Probit Multivariado (Modelo 2)") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = FALSE,
+    position          = "center"
+  ) %>%
+  footnote(general = "Errores estándar en paréntesis. * p<0.1, ** p<0.05, *** p<0.01")
+
+# Tabla 2: Efectos Marginales
+ef_tabla_m2 <- summary(efectos_m2) %>%
+  select(factor, AME, SE, z, p) %>%
+  mutate(
+    factor = case_when(
+      factor == "BID"             ~ "BID (USD/Día)",
+      factor == "incom"           ~ "Ingreso",
+      factor == "p55age"          ~ "Edad",
+      factor == "tBW1"            ~ "Casual (tBW1)",
+      factor == "tBW2"            ~ "Entusiasta (tBW2)",
+      factor == "visitcol"        ~ "Visitó Colombia",
+      factor == "viajaext"        ~ "Viaja al Exterior",
+      factor == "interesed_inCol" ~ "Interés en Colombia",
+      factor == "edu_univ"        ~ "Educación Universitaria",
+      factor == "emp_work"        ~ "Empleo Activo",
+      factor == "emp_retired"     ~ "Retirado",
+      TRUE ~ factor
+    ),
+    AME = round(AME, 5),
+    SE  = round(SE,  5),
+    z   = round(z,   3),
+    p   = round(p,   3)
+  )
+
+kable(ef_tabla_m2,
+      col.names = c("Variable", "Efecto Marginal",
+                    "Error Estándar", "Est. Z", "P-Valor"),
+      align     = c("l", "r", "r", "r", "r"),
+      caption   = "Efectos Marginales Promedio - Modelo 2") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = FALSE,
+    position          = "center"
+  ) %>%
+  footnote(general = "Errores estándar en paréntesis. * p<0.1, ** p<0.05, *** p<0.01")
+
+```
+### Literal e)	A partir del Modelo 1, calcule la Disponibilidad a Pagar (DAP). 
+Interprete el resultado en el contexto del estudio. ¿Qué significa económicamente ese valor?
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+# Cálculo de la DAP - Modelo 1
+
+# Extraer coeficientes
+beta_0 <- coef(modelo1)["(Intercept)"]
+beta_1 <- coef(modelo1)["BID"]
+
+# Calcular DAP
+DAP_m1 <- -beta_0 / beta_1
+
+cat("DAP Modelo 1:", round(DAP_m1, 2), "USD/día/persona\n")
+cat("Prima sobre Costa Rica:", round(DAP_m1 - 250, 2), "USD/día/persona\n")
+```
+###Literal f)	A partir del Modelo 2, calcule la DAP individual para cada observador de la muestra. 
+Reporte el promedio de la DAP individual. ¿En cuánto difiere de la DAP del Modelo 1? ¿A qué atribuye esa diferencia?
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+
+# DAP individual - Modelo 2
+
+# Extraer coeficientes
+coefs_2 <- coef(modelo2)
+
+# Calcular DAP individual para cada observador
+Base_c <- Base_c %>%
+  mutate(
+    DAP_individual = -(
+      coefs_2["(Intercept)"]      +
+      coefs_2["incom"]            * incom          +
+      coefs_2["p55age"]           * p55age         +
+      coefs_2["tBW1"]             * tBW1           +
+      coefs_2["tBW2"]             * tBW2           +
+      coefs_2["visitcol"]         * visitcol       +
+      coefs_2["viajaext"]         * viajaext       +
+      coefs_2["interesed_inCol"]  * interesed_inCol+
+      coefs_2["edu_univ"]         * edu_univ       +
+      coefs_2["emp_work"]         * emp_work       +
+      coefs_2["emp_retired"]      * emp_retired
+    ) / coefs_2["BID"]
+  )
+
+# DAP promedio
+DAP_m2 <- mean(Base_c$DAP_individual, na.rm = TRUE)
+
+cat("DAP promedio Modelo 2:", round(DAP_m2, 2), "USD/día/persona\n")
+cat("DAP Modelo 1:         ", round(DAP_m1, 2), "USD/día/persona\n")
+cat("Diferencia:           ", round(DAP_m2 - DAP_m1, 2), "USD/día/persona\n")
+
+# Distribución de la DAP individual
+summary(Base_c$DAP_individual)
+
+# Histograma
+ggplot(Base_c, aes(x = DAP_individual)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  geom_vline(xintercept = DAP_m2, color = "red", linetype = "dashed") +
+  geom_vline(xintercept = DAP_m1, color = "darkgreen", linetype = "dashed") +
+  labs(
+    title   = "Distribución de la DAP individual - Modelo 2",
+    x       = "DAP (USD/día/persona)",
+    y       = "Frecuencia",
+    caption = "Línea roja: DAP promedio M2 | Línea verde: DAP M1"
+  ) +
+  theme_minimal()
+```
+### Literal g)	Con base en la DAP estimada en el punto f), y considerando que aproximadamente el 65% de los 660.000 miembros de Audubon manifestaría interés en viajar al exterior para hacer aviturismo:
+
+-	Estime el número potencial de turistas por año, asumiendo que cada persona realizaría el tour una vez en los próximos 10 años.
+-	Estime el ingreso bruto anual generado por el sector.
+-	Si el margen de ganancia sobre los costos operativos (equivalentes a los de Costa Rica, USD $250/día) es del 20%, ¿cuál sería la ganancia anual del sector?
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+# Estimación de impacto económico
+
+# Parámetros
+miembros        <- 660000
+pct_interesados <- 0.65
+anos            <- 10
+dias_tour       <- 10
+costo_CR        <- 250
+margen          <- 0.20
+DAP             <- DAP_m2
+
+# Paso 1: Turistas por año
+turistas_total <- miembros * pct_interesados
+turistas_anual <- turistas_total / anos
+
+# Paso 2: Ingreso bruto anual
+ingreso_bruto <- turistas_anual * DAP * dias_tour
+
+# Paso 3: Ganancia anual
+ganancia_anual <- turistas_anual * (DAP - costo_CR) * dias_tour * margen
+
+# Resultados
+cat("Turistas potenciales totales:", format(turistas_total, big.mark=","), "\n")
+cat("Turistas por año:            ", format(turistas_anual, big.mark=","), "\n")
+cat("Ingreso bruto anual (USD):   ", format(round(ingreso_bruto), big.mark=","), "\n")
+cat("Ganancia anual (USD):        ", format(round(ganancia_anual), big.mark=","), "\n")
+```
