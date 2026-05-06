@@ -42,7 +42,8 @@ p_load(haven,        #Leer archivos .dta
        mass,          #Función box-cox
        countreg,      #Modelos de conteo
        VGAM,          #Modelos de conteo
-       margins        #Efectos marginales en modelos no lineales
+       margins,       #Efectos marginales en modelos no lineales
+       survival       #Modelos de supervivencia
       )
 ```
 
@@ -546,4 +547,161 @@ cat("Turistas potenciales totales:", format(turistas_total, big.mark=","), "\n")
 cat("Turistas por año:            ", format(turistas_anual, big.mark=","), "\n")
 cat("Ingreso bruto anual (USD):   ", format(round(ingreso_bruto), big.mark=","), "\n")
 cat("Ganancia anual (USD):        ", format(round(ganancia_anual), big.mark=","), "\n")
+```
+#2. EXPERIMENTOS DE ELECCIÓN
+
+### Transformación de datos en R
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+
+# Descargar y leer archivo Excel desde GitHub
+url_excel <- "https://raw.githubusercontent.com/GeorgeWton1986/Ejer3_VC_EE/refs/heads/main/Data/datos_choice_experiment.xls"
+
+temp <- tempfile(fileext = ".xls")
+download.file(url_excel, destfile = temp, mode = "wb")
+
+# Leer Sheet1 (datos del panel)
+Baseleccion <- read_excel(temp, sheet = "Sheet1")
+
+# Ver estructura
+glimpse(Baseleccion)
+names(Baseleccion)
+```
+
+### Modelo Logit Condicional (Clogit)
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+
+# Instalar paquete necesario
+if(!require(survival)) install.packages("survival"); require(survival)
+
+# Crear variable de grupo (combinación individuo-tarea)
+# Crear variables
+Baseleccion <- Baseleccion %>%
+  mutate(
+    turbinas = if_else(att2numberofwindmills == 1, 18, 9),
+    gym_peq  = if_else(att3sportsfacility == 2, 1, 0),
+    gym_med  = if_else(att3sportsfacility == 3, 1, 0)
+  ) %>%
+  group_by(indiv, task) %>%
+  mutate(id_grupo = cur_group_id()) %>%
+  ungroup()
+
+# Verificar grupos
+cat("Número de grupos:", n_distinct(Baseleccion$id_grupo), "\n")
+table(table(Baseleccion$id_grupo))
+
+# Estimación CLogit
+modelo_clogit <- clogit(choice2 ~ att1rebate + 
+                                  turbinas + 
+                                  gym_peq + 
+                                  gym_med +
+                                  strata(id_grupo),
+                        data   = Baseleccion,
+                        method = "exact")
+
+summary(modelo_clogit)
+
+# Pseudo R2
+LL_modelo <- modelo_clogit$loglik[2]
+LL_nulo   <- modelo_clogit$loglik[1]
+pseudo_r2_clogit <- 1 - (LL_modelo / LL_nulo)
+cat("Pseudo R² CLogit:", round(pseudo_r2_clogit, 4), "\n")
+
+# Tabla CLogit
+
+coefs_clogit <- coef(summary(modelo_clogit))
+
+# Función asteriscos
+stars <- function(p) {
+  case_when(
+    p < 0.01 ~ "***",
+    p < 0.05 ~ "**",
+    p < 0.1  ~ "*",
+    TRUE     ~ ""
+  )
+}
+
+# Construir tabla
+tabla_clogit <- tibble(
+  `Variable` = c("Descuento tarifa (att1rebate)",
+                 "Número de turbinas (turbinas)",
+                 "Gimnasio pequeño (gym_peq)",
+                 "Gimnasio mediano (gym_med)",
+                 "Observaciones",
+                 "Grupos",
+                 "Log-likelihood",
+                 "Concordancia"),
+  `Coeficiente` = c(
+    paste0(round(coefs_clogit["att1rebate", "coef"], 5),
+           stars(coefs_clogit["att1rebate", "Pr(>|z|)"])),
+    paste0(round(coefs_clogit["turbinas",   "coef"], 5),
+           stars(coefs_clogit["turbinas",   "Pr(>|z|)"])),
+    paste0(round(coefs_clogit["gym_peq",    "coef"], 5),
+           stars(coefs_clogit["gym_peq",    "Pr(>|z|)"])),
+    paste0(round(coefs_clogit["gym_med",    "coef"], 5),
+           stars(coefs_clogit["gym_med",    "Pr(>|z|)"])),
+    "1,100",
+    "550",
+    as.character(round(modelo_clogit$loglik[2], 3)),
+    "0.649"
+  ),
+  `Desv. Estándar` = c(
+    paste0("(", round(coefs_clogit["att1rebate", "se(coef)"], 5), ")"),
+    paste0("(", round(coefs_clogit["turbinas",   "se(coef)"], 5), ")"),
+    paste0("(", round(coefs_clogit["gym_peq",    "se(coef)"], 5), ")"),
+    paste0("(", round(coefs_clogit["gym_med",    "se(coef)"], 5), ")"),
+    "", "", "", ""
+  )
+)
+
+kable(tabla_clogit,
+      align   = c("l", "r", "r"),
+      caption = "Modelo Logit Condicional (CLogit)") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width        = FALSE,
+    position          = "center"
+  ) %>%
+  footnote(general = "Errores estándar en paréntesis. * p<0.1, ** p<0.05, *** p<0.01")
+
+```
+### Literal a)	DAA por una turbina adicional (Disposición a Aceptar Compensación por pasar de 9 a 18 turbinas):
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+# Cálculo DAA
+
+# Extraer coeficientes
+b_rebate  <- coef(modelo_clogit)["att1rebate"]
+b_turb    <- coef(modelo_clogit)["turbinas"]
+b_gym_peq <- coef(modelo_clogit)["gym_peq"]
+b_gym_med <- coef(modelo_clogit)["gym_med"]
+
+# Delta turbinas
+delta_turb <- 9  # pasar de 9 a 18 turbinas
+
+escala_NOK <- 200
+
+# DAA por 9 turbinas adicionales
+DAA_NOK <- -(b_turb / b_rebate) * delta_turb * escala_NOK
+
+# Resultados
+cat("DAA (9 turbinas adicionales):", round(DAA_NOK, 2), "NOK/año\n")
+```
+
+
+###Literal b)	DAP por acceso a un gimnasio pequeño (pasar de sin gimnasio a gimnasio pequeño):
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+# DAP gimnasio pequeño
+DAP_peq_NOK <- (b_gym_peq / b_rebate) * escala_NOK
+
+# Resultados
+cat("DAP gimnasio pequeño:        ", round(DAP_peq_NOK, 2), "NOK/año\n")
+```
+
+
+###Liteal c)	DAP por acceso a un gimnasio mediano (pasar de sin gimnasio a gimnasio mediano):
+```{r ECHO=FALSE, warning=FALSE, message=FALSE}
+# DAP gimnasio mediano
+DAP_med_NOK <- (b_gym_med / b_rebate) * escala_NOK
+
+# Resultados
+cat("DAP gimnasio mediano:        ", round(DAP_med_NOK, 2), "NOK/año\n")
 ```
